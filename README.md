@@ -1,99 +1,93 @@
-# Pokédex — Como executar no Windows
+# Pokédex no terminal — Java e MongoDB
 
-Uma Pokédex feita em Java e MongoDB para consultar, cadastrar, editar e excluir Pokémon. Já inclui os **800 Pokémon do arquivo JSON**.
+Consulte, cadastre, edite e exclua Pokémon pelo terminal. O projeto inclui os **800 Pokémon do JSON fornecido**. Não usa navegador nem precisa de Docker.
 
-## 1. Instale as ferramentas
+## 1. O que precisa instalar
 
-- **Java JDK 21:** https://adoptium.net/temurin/releases/?version=21
-- **Maven 3.9 ou superior:** https://maven.apache.org/install.html
-- **Docker Desktop:** https://docs.docker.com/desktop/setup/install/windows-install/
+- **Java JDK 21**: https://adoptium.net/temurin/releases/?version=21
+- **Maven 3.9 ou superior**: https://maven.apache.org/install.html
+- **MongoDB Community Server**: https://www.mongodb.com/try/download/community
 
-Na instalação do Java, habilite as opções de adicionar ao `PATH` e configurar `JAVA_HOME`, se disponíveis. Para o Maven, extraia o arquivo ZIP e adicione a pasta `bin` dele ao `Path` nas Variáveis de Ambiente do Windows.
+Na instalação do MongoDB, marque a opção de instalar como **serviço do Windows**. O Compass é opcional: ele serve para visualizar o banco, mas não substitui o servidor.
 
-Depois, feche e abra o PowerShell e confira:
+No PowerShell, confira se as ferramentas estão instaladas:
 
 ```powershell
 java -version
 javac -version
 mvn -version
-docker --version
 ```
 
-O Java e o compilador `javac` devem mostrar a versão **21**, e os outros comandos devem mostrar suas versões. Se algum comando não for reconhecido, confira a instalação antes de continuar.
+Java, javac e o Java mostrado pelo Maven devem estar na versão 21. Se um comando não for reconhecido, confira sua instalação e o `Path` do Windows. A variável `JAVA_HOME` deve apontar para a pasta do JDK 21.
 
-### Se o Docker pedir “Virtual Machine Platform” ou WSL
+## 2. Inicie o MongoDB
 
-Abra o **PowerShell como administrador** e execute:
+Pressione **Win + R**, digite `services.msc` e pressione Enter. Procure **MongoDB Server**. Se estiver parado, clique com o botão direito e escolha **Iniciar**.
 
-```powershell
-wsl --install
-```
+O projeto conecta por padrão ao MongoDB local na porta **27017**, banco **pokedex**, coleção **pokemons**. Se o banco já está funcionando nessa porta, pode seguir para o próximo passo.
 
-Aguarde concluir, reinicie o computador e instale o Docker Desktop novamente. Se aparecer outro erro, copie a mensagem para pedir ajuda.
+## 3. Execute o projeto
 
-## 2. Abra a pasta do projeto
+Extraia o ZIP do projeto. Abra a pasta que contém o arquivo **pom.xml**. Na barra de endereço do Explorador de Arquivos, digite `powershell` e pressione Enter.
 
-Extraia o ZIP baixado do GitHub. Abra a pasta que contém o arquivo `pom.xml`.
-
-Na barra de endereço do Explorador de Arquivos, digite `powershell` e pressione **Enter**.
-
-## 3. Inicie a Pokédex
-
-Abra o **Docker Desktop** e aguarde ele iniciar.
-
-No PowerShell da pasta do projeto, execute **um comando por vez**:
-
-```powershell
-docker compose up -d --wait
-```
-
-Esse comando inicia o MongoDB. Depois, compile o projeto e execute os testes:
+Execute um comando por vez:
 
 ```powershell
 mvn clean verify
 ```
 
-Aguarde aparecer **BUILD SUCCESS**. Então inicie a aplicação:
+Quando aparecer **BUILD SUCCESS**, execute:
 
 ```powershell
 java -jar target/pokedex-1.0.0.jar
 ```
 
-Mantenha esse terminal aberto. No navegador, digite **localhost:8080** na barra de endereço.
+O menu aparece no próprio terminal:
 
-Na primeira execução, os 800 Pokémon são importados automaticamente para o MongoDB. Não precisa importar o JSON manualmente.
-
-## 4. Teste a aplicação
-
-1. Busque **Bulbasaur** e abra sua ficha.
-2. Experimente os filtros de tipo, geração e lendário.
-3. Clique em **Novo Pokémon** e cadastre um Pokémon com o número **801**.
-4. Abra a ficha dele, clique em **Editar Pokémon** e salve uma alteração.
-5. Clique em **Excluir** e confirme para removê-lo.
-
-As alterações ficam salvas no banco mesmo depois de fechar a aplicação.
-
-## 5. Como fechar e abrir novamente
-
-Para fechar a aplicação, pressione **Ctrl+C** no terminal. Depois, pare o banco:
-
-```powershell
-docker compose down
+```text
+1 - Listar Pokémon
+2 - Buscar por nome
+3 - Consultar ficha por número
+4 - Cadastrar Pokémon
+5 - Editar Pokémon
+6 - Excluir Pokémon
+0 - Sair
 ```
 
-Para abrir novamente, inicie o Docker Desktop e execute na pasta do projeto:
+Digite o número da opção e pressione Enter. Responda às perguntas que aparecerem.
+
+## 4. Como testar
+
+1. Digite **2** e busque **Bulbasaur**.
+2. Digite **3** e informe o número **1** para consultar sua ficha.
+3. Digite **4** e cadastre um Pokémon com um número ainda livre, como **801**. Tipos devem ser informados em inglês, por exemplo `Grass,Poison`.
+4. Digite **5** para editar esse Pokémon. Pressione Enter em um campo para manter seu valor.
+5. Digite **6** para excluí-lo e confirme com **s**.
+6. Digite **0** para sair.
+
+A opção 1 lista 20 Pokémon por página. A opção 2 aceita parte do nome, sem diferenciar maiúsculas e minúsculas. A ficha mostra tipos, geração, lendário, HP, ataque, defesa e velocidade.
+
+Os atributos vão de 1 a 255 e a geração de 1 a 9. O número precisa ser positivo e único. Ele corresponde ao `_id` do JSON, que inclui formas Mega e pode diferir da numeração oficial da Pokédex.
+
+## Abrir novamente
+
+Com o MongoDB rodando, basta executar na pasta do projeto:
 
 ```powershell
-docker compose up -d --wait
 java -jar target/pokedex-1.0.0.jar
 ```
 
-Só precisa executar `mvn clean verify` novamente se alterar o código ou quiser repetir os testes.
+Os dados ficam salvos. Os 800 registros são importados apenas se a coleção ainda não existir, sem sobrescrever suas alterações.
 
 ## Problemas comuns
 
-- **“docker não é reconhecido”:** instale o Docker Desktop e abra um novo PowerShell.
-- **“mvn não é reconhecido”:** confira se a pasta `bin` do Maven está no `Path` e abra um novo PowerShell.
-- **“release version 21 not supported”:** confira se `mvn -version` mostra Java 21 e ajuste `JAVA_HOME` para o JDK 21.
-- **Erro de conexão com o MongoDB:** confira se o Docker Desktop está aberto e repita `docker compose up -d --wait`.
-- **Porta 8080 ocupada:** feche outra instância da aplicação antes de iniciar novamente.
+- **mvn não reconhecido:** adicione a pasta `bin` do Maven ao `Path` e abra outro PowerShell.
+- **Erro sobre Java 21:** confira `mvn -version` e ajuste `JAVA_HOME` para o JDK 21.
+- **Erro de conexão com o MongoDB:** confira se o serviço MongoDB Server está iniciado na porta 27017.
+- **Caracteres estranhos no terminal:** execute `chcp 65001` antes de iniciar e use um terminal com suporte a UTF-8.
+
+Para outro servidor MongoDB, configure `MONGODB_URI` no ambiente antes de executar. Não salve senhas no Git.
+
+## Testes automáticos
+
+`mvn clean verify` compila o projeto e executa seis testes de integração contra MongoDB local. Eles verificam importação, consultas, CRUD, validação e interação com o menu. Usam um banco temporário `pokedex_test_<identificador>`, removido ao final, sem alterar o banco principal.

@@ -7,14 +7,26 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
 @SpringBootApplication
 public class PokedexApplication {
-    public static void main(String[] args) { SpringApplication.run(PokedexApplication.class, args); }
+    @Bean
+    ObjectMapper objectMapper() { return new ObjectMapper(); }
+
+    public static void main(String[] args) {
+        try (var context = SpringApplication.run(PokedexApplication.class, args)) {
+            // O contexto e a conexão com MongoDB fecham ao sair do menu.
+        } catch (Exception e) {
+            System.err.println("Não foi possível iniciar a Pokédex. Confira se o MongoDB está rodando e se MONGODB_URI está correta.");
+            System.exit(1);
+        }
+    }
 
     @Bean
+    @Order(1)
     CommandLineRunner importarColecao(MongoTemplate mongo, ObjectMapper mapper) {
         return args -> {
             // A coleção existente nunca é sobrescrita, mesmo quando todos os registros foram excluídos.

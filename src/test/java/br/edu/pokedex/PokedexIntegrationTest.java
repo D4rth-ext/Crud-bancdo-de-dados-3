@@ -1,75 +1,70 @@
 package br.edu.pokedex;
 
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.http.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = "pokedex.console.enabled=false")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PokedexIntegrationTest {
-    private static final String TEST_URI = "mongodb://localhost:27017/pokedex_test_" + UUID.randomUUID().toString().replace("-", "") + "?serverSelectionTimeoutMS=5000";
-    @Autowired TestRestTemplate http;
-    @Autowired MongoTemplate mongo;
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.mongodb.uri", () -> TEST_URI);
+    static final String URI = "mongodb://localhost:27017/pokedex_test_" + UUID.randomUUID().toString().replace("-", "") + "?serverSelectionTimeoutMS=5000";
+    @DynamicPropertySource static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.mongodb.uri", () -> URI);
     }
+    @Autowired PokemonService service;
+    @Autowired MongoTemplate mongo;
     @AfterAll void cleanup() { mongo.getDb().drop(); }
 
-    Map<String,Object> pokemon(int id) {
-        return new HashMap<>(Map.of("_id", id, "name", "Teste Pokémon", "types", List.of("Fire"), "legendary", false,
-            "hp", 50, "attack", 60, "defense", 70, "speed", 80, "generation", 1));
+    Pokemon pokemon(int id, String name) { return new Pokemon(id, List.of("Fire"), name, false, 50, 60, 70, 80, 1); }
+    String console(String input) {
+        var buffer = new ByteArrayOutputStream();
+        new PokedexConsole(service, new Scanner(input), new PrintStream(buffer, true, StandardCharsets.UTF_8)).run();
+        return buffer.toString(StandardCharsets.UTF_8);
     }
-    @Test void importaArquivoEConsultaComFiltros() {
-        var all = http.getForEntity("/api/pokemons", Map.class);
-        assertThat(all.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(all.getBody().get("total")).isEqualTo(800);
-        var result = http.getForObject("/api/pokemons?q=bulbasaur&type=Grass&generation=1&legendary=false", Map.class);
-        assertThat(result.get("total")).isEqualTo(1);
-        var detail = http.getForObject("/api/pokemons/1", Map.class);
-        assertThat(detail.get("name")).isEqualTo("Bulbasaur");
-        assertThat(detail.get("_id")).isEqualTo(1);
+
+    @Test void importaEBuscaColecao() {
+        assertThat(service.total()).isEqualTo(800);
+        assertThat(service.buscar("bulba")).extracting(Pokemon::name).containsExactly("Bulbasaur");
+        assertThat(service.consultar(1).hp()).isEqualTo(45);
+        assertThat(service.listar(0)).hasSize(20);
+        assertThat(service.listar(1).getFirst().id()).isEqualTo(21);
+        assertThat(service.buscar("[")).isEmpty();
     }
-    @Test void cadastraEditaPersisteEExclui() {
-        var body=pokemon(9001);
-        var created=http.postForEntity("/api/pokemons", body, Map.class);
-        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(created.getHeaders().getLocation().toString()).isEqualTo("/api/pokemons/9001");
-        assertThat(http.postForEntity("/api/pokemons", body, Map.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        body.put("name", "Pokémon editado");
-        assertThat(http.exchange("/api/pokemons/9001", HttpMethod.PUT,new HttpEntity<>(body),Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(mongo.findById(9001,Pokemon.class).name()).isEqualTo("Pokémon editado");
-        assertThat(http.exchange("/api/pokemons/9001",HttpMethod.DELETE,HttpEntity.EMPTY,Void.class).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        assertThat(http.getForEntity("/api/pokemons/9001",Map.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    @Test void crudPersisteNoMongo() {
+        try {
+            service.cadastrar(pokemon(9001, "Novo Pokémon"));
+            assertThatThrownBy(() -> service.cadastrar(pokemon(9001, "Duplicado"))).isInstanceOf(DuplicateKeyException.class);
+            service.editar(9001, pokemon(9001, "Editado"));
+            assertThat(mongo.findById(9001, Pokemon.class).name()).isEqualTo("Editado");
+            service.excluir(9001);
+            assertThatThrownBy(() -> service.consultar(9001)).hasMessage("Pokémon não encontrado.");
+        } finally { mongo.remove(org.springframework.data.mongodb.core.query.Query.query(org.springframework.data.mongodb.core.query.Criteria.where("_id").is(9001)), Pokemon.class); }
     }
-    @Test void rejeitaDadosInvalidos() {
-        var body=pokemon(9002);body.put("hp",0);
-        assertThat(http.postForEntity("/api/pokemons",body,Map.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        body.put("hp",50);body.put("types",List.of("Inventado"));
-        assertThat(http.postForEntity("/api/pokemons",body,Map.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        body.put("types",List.of("Fire","Fire"));
-        assertThat(http.postForEntity("/api/pokemons",body,Map.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    @Test void validaDadosENaoCriaNaEdicao() {
+        assertThatThrownBy(() -> service.cadastrar(new Pokemon(9002, List.of("Inventado"), "Teste", false, 50, 60, 70, 80, 1))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.cadastrar(new Pokemon(9002, List.of("Fire"), "Teste", false, 0, 60, 70, 80, 1))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.editar(9002, pokemon(9002, "Não existe"))).hasMessage("Pokémon não encontrado.");
+        assertThatThrownBy(() -> service.editar(1, pokemon(9002, "Outro número"))).hasMessage("O número não pode ser alterado.");
     }
-    @Test void edicaoNaoCriaRegistroNemMudaNumero() {
-        assertThat(http.exchange("/api/pokemons/9003",HttpMethod.PUT,new HttpEntity<>(pokemon(9003)),Map.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(http.exchange("/api/pokemons/1",HttpMethod.PUT,new HttpEntity<>(pokemon(9003)),Map.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(http.exchange("/api/pokemons/9003",HttpMethod.DELETE,HttpEntity.EMPTY,Map.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    @Test void terminalExecutaCrudCompleto() {
+        String output = console("4\n9003\nTeste terminal\nfire\nn\n50\n60\n70\n80\n1\n2\nTeste terminal\n3\n9003\n5\n9003\nEditado terminal\n\n\n\n\n\n\n\n6\n9003\ns\n0\n");
+        assertThat(output).contains("Pokémon cadastrado com sucesso!", "Teste terminal", "HP: 50", "Pokémon atualizado com sucesso!", "Editado terminal", "Pokémon excluído com sucesso!", "Até a próxima");
+        assertThatThrownBy(() -> service.consultar(9003)).isInstanceOf(IllegalArgumentException.class);
     }
-    @Test void paginacaoEEntradaSaoValidadas() {
-        var result=http.getForObject("/api/pokemons?page=1&size=1",Map.class);
-        assertThat((List<?>)result.get("items")).hasSize(1);
-        assertThat(http.getForEntity("/api/pokemons?size=0",Map.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(http.getForEntity("/api/pokemons?q=%5B",Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+    @Test void terminalTrataErrosECancelamento() {
+        String output = console("x\n3\nabc\n99999\n2\nSemResultado123\n6\n1\nn\n0\n");
+        assertThat(output).contains("Opção inválida", "Digite um número inteiro", "Pokémon não encontrado", "Nenhum Pokémon encontrado", "Exclusão cancelada");
+        assertThat(service.consultar(1).name()).isEqualTo("Bulbasaur");
     }
-    @Test void entregaInterface() {
-        assertThat(http.getForObject("/",String.class)).contains("Pokédex", "Novo Pokémon");
-        assertThat(http.getForEntity("/app.js",String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+    @Test void terminalSaiQuandoEntradaTermina() {
+        assertThat(console("")).contains("Entrada encerrada");
     }
 }
